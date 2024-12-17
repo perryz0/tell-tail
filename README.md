@@ -1,2 +1,2 @@
-# tailscale-noti-bot
+# tscale-discord
 Discord bot for tailscale-based team workflows.
