@@ -6,6 +6,9 @@ class TailscaleAPI:
     """
 
     BASE_URL = "https://api.tailscale.com/api/v2"
+    api_token = os.getenv("TAILSCALE_API_TOKEN")
+    if not api_token:
+        raise ValueError("API Token not found within .env!")
 
     def __init__(self, api_token):
         """
