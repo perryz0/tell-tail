@@ -12,17 +12,14 @@ import asyncio
 load_dotenv()
 DISCORD_TOKEN: Final[str] = os.getenv('DISCORD_BOT_TOKEN')
 
-# Logging configuration
-logging.basicConfig(level=logging.INFO)
-
 # API and BOT setup
 TAILSCALE_TOKEN: Final[str] = os.getenv('TAILSCALE_API_TOKEN')
 ts = TailscaleAPI(api_token=TAILSCALE_TOKEN)
-intents = discord.Intents.default()
-intents.messages = True  # Enable message handling
-intents.guilds = True    # Enable guild events
+intents = discord.Intents.all()
+intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+client = commands.Bot(command_prefix="!", intents=intents)
+logging.basicConfig(level=logging.INFO)
 
 # Bot Context (placeholder)
 class BotContext:
