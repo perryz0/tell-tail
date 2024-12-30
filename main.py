@@ -23,23 +23,22 @@ logging.basicConfig(level=logging.INFO)
 
 context: BotContext = BotContext()
 
-# Event: On Ready
-@bot.event
+@client.event
 async def on_ready():
-    logging.info(f"Logged in as {bot.user}")
+    logging.info(f"Logged in as {client.user}")
     logging.info("Connected guilds:")
-    for guild in bot.guilds:
+    for guild in client.guilds:
         logging.info(f"- {guild.name} (ID: {guild.id})")
     # Start background tasks
     monitor_tailnet_changes.start()
 
-# Command: Ping
-@bot.command(name="ping", help="Check if the bot is running")
+
+@client.command(name="ping", help="Check if the bot is running")
 async def ping(ctx):
     await ctx.send("Pong! The bot is running.")
 
 # Command: List Devices
-@bot.command(name="list_devices", help="List all devices on the Tailscale network")
+@client.command(name="list_devices", help="List all devices on the Tailscale network")
 async def list_devices(ctx):
     try:
         devices = ts.list_devices(context.tailnet)
@@ -68,7 +67,7 @@ async def monitor_tailnet_changes():
         logging.error(f"Error monitoring Tailnet: {e}")
 
 # Error Handling: Command Errors
-@bot.event
+@client.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         await ctx.send("Unknown command. Use `!help` to see available commands.")
@@ -78,4 +77,4 @@ async def on_command_error(ctx, error):
 
 # Run the bot
 if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
+    client.run(DISCORD_TOKEN)
