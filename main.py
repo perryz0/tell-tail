@@ -2,10 +2,10 @@ from typing import Final
 
 import discord
 from discord.ext import commands, tasks
-import logging
+import os, logging
 from dotenv import load_dotenv
-import os
 from api.TailscaleAPI import TailscaleAPI
+from settings.bot_context import BotContext
 import asyncio
 
 # Load .env variables
@@ -21,12 +21,7 @@ intents.message_content = True
 client = commands.Bot(command_prefix="!", intents=intents)
 logging.basicConfig(level=logging.INFO)
 
-# Bot Context (placeholder)
-class BotContext:
-    def __init__(self):
-        self.tailnet = os.getenv("TAILNET_NAME")  # Name of the Tailscale tailnet
-
-context = BotContext()
+context: BotContext = BotContext()
 
 # Event: On Ready
 @bot.event
