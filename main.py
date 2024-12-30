@@ -1,3 +1,5 @@
+from typing import Final
+
 import discord
 from discord.ext import commands, tasks
 import logging
@@ -6,21 +8,17 @@ import os
 from api.TailscaleAPI import TailscaleAPI
 import asyncio
 
-# Load environment variables
+# Load .env variables
 load_dotenv()
-
-# Discord bot token from .env
-DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+DISCORD_TOKEN: Final[str] = os.getenv("DISCORD_BOT_TOKEN")
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))  # Optional for specific guild targeting
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
 
-# Tailscale API instance
-TAILSCALE_API_TOKEN = os.getenv("TAILSCALE_API_TOKEN")
+# API and BOT setup
+TAILSCALE_API_TOKEN: Final[str] = os.getenv("TAILSCALE_API_TOKEN")
 ts = TailscaleAPI(api_token=TAILSCALE_API_TOKEN)
-
-# Discord bot setup
 intents = discord.Intents.default()
 intents.messages = True  # Enable message handling
 intents.guilds = True    # Enable guild events
