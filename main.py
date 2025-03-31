@@ -5,7 +5,7 @@ from discord.ext import commands, tasks
 import os, logging
 from dotenv import load_dotenv
 from services.api.TailscaleAPI import TailscaleAPI
-from services.tasks.acl_manager import ACLManager
+from services.acl_commands import acl_commands
 from settings.bot_context import BotContext
 import asyncio
 
@@ -81,24 +81,21 @@ async def on_command_error(ctx, error):
 
 
 # Tailscale ACL Handling for privilege separation and access control
-acl_manager = ACLManager()
-@client.command(name="authorize", help="Authorize a user to access the server")
-async def authorize(ctx):
-    try:
-        username = ctx.author.name
-        acl_manager.add_user_to_acl(username)
-        await ctx.send(f"User {username} authorized to SSH!")
-    except Exception as e:
-        await ctx.send(f"Authorization failed: {e}")
+@client.command(name="adduser", help="Add a user to the ACL")
+async def adduser(ctx, username: str, ports: str = "22/tcp"):
+    await acl_commands.add_user(ctx, username, ports)
 
-@client.command(name="deauthorize", help="Revoke a user's access")
-async def deauthorize(ctx):
-    try:
-        username = ctx.author.name
-        acl_manager.remove_user_from_acl(username)
-        await ctx.send(f"User {username} deauthorized from SSH!")
-    except Exception as e:
-        await ctx.send(f"Deauthorization failed: {e}")
+@client.command(name="removeuser", help="Remove a user from the ACL")
+async def removeuser(ctx, username: str):
+    await acl_commands.remove_user(ctx, username)
+
+@client.command(name="listusers", help="List all users with SSH access")
+async def listusers(ctx):
+    await acl_commands.list_users(ctx)
+
+@client.command(name="updateuser", help="Update user ACL ports")
+async def updateuser(ctx, username: str, ports: str):
+    await acl_commands.update_user(ctx, username, ports)
 
 
 # Run the bot
