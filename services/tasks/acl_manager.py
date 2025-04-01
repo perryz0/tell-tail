@@ -30,25 +30,40 @@ class ACLManager:
         """Fetch the current ACL configuration."""
         return self._make_request("GET", "/acl")
 
-    def list_users(self):
+    def list_acl_users(self):
         """List all users in the current ACL."""
         acls = self.get_acls()
         if acls:
             users = [entry['users'] for entry in acls.get('acls', [])]
             return [user for sublist in users for user in sublist]
         return []
+    
+    def list_tailnet_users(self):
+        """List all active users on the Tailnet."""
+        endpoint = f"/tailnet/{TAILNET_NAME}/devices"
+        response = self._make_request("GET", endpoint)
+        if not response:
+            return []
+        # Extract unique usernames from device data
+        active_users = {device.get("hostname") for device in response}
+        return list(active_users)
 
     def add_user_to_acl(self, username, ports=None):
         """Add or update a user in the ACL with specified ports."""
         if ports is None:
             ports = ["22/tcp"]  # Defaulting to SSH port 22 for now
 
+        # First check if user is an EXISTING member of the Tailnet
+        active_users = self.list_tailnet_users()
+        if username not in active_users:
+            return f"Error: {username} is not an active member of the Tailnet."
+
         existing_acls = self.get_acls()
         if not existing_acls:
             return "Error fetching current ACLs."
 
-        # Check if user already exists
-        if f"user:{username}" in self.list_users():
+        # Check if user already exists in the ACL
+        if f"user:{username}" in self.list_acl_users():
             return f"User {username} already exists in ACL."
 
         # Update the ACL by adding a new user entry
