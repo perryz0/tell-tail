@@ -45,16 +45,21 @@ async def ping(ctx):
 @client.command(name="list_devices", help="List all devices on the Tailscale network")
 async def list_devices(ctx):
     try:
-        devices = ts.list_devices(context.tailnet)
-        if not devices:
+        devices_response = ts.list_devices(context.tailnet)
+        
+        # Check if res is None or not properly structured
+        if not devices_response or "devices" not in devices_response:
             await ctx.send("No devices found on the Tailscale network.")
             return
         
-        device_list = "\n".join([f"- {device['hostname']} ({device['ip']})" for device in devices])
+        devices = devices_response["devices"]
+
+        device_list = "\n".join([f"- {device['hostname']} ({device['addresses'][0]})" for device in devices])
         await ctx.send(f"Devices on Tailscale:\n{device_list}")
     except Exception as e:
         logging.error(f"Error listing devices: {e}")
         await ctx.send("Failed to retrieve device list.")
+
 
 # Background Task: Monitor Tailnet Changes
 @tasks.loop(minutes=1)

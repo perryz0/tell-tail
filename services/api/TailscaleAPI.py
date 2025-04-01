@@ -1,4 +1,4 @@
-import requests, os
+import requests, os, logging
 
 class TailscaleAPI:
     """
@@ -21,27 +21,34 @@ class TailscaleAPI:
     def _make_request(self, method, endpoint, params=None, data=None):
         """
         Internal method to make HTTP requests to the Tailscale API.
-
-        :param method: HTTP method.
-        :param endpoint: API endpoint (relative to BASE_URL).
-        :param params: Query params (if applicable).
-        :param data: JSON data for POST requests (if any).
-        :return: Response object.
         """
         url = f"{self.BASE_URL}{endpoint}"
         headers = {
             "Authorization": f"Bearer {self.api_token}",
             "Content-Type": "application/json",
         }
-        response = requests.request(
-            method,
-            url,
-            headers=headers,
-            params=params,
-            json=data,
-        )
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = requests.request(
+                method,
+                url,
+                headers=headers,
+                params=params,
+                json=data,
+            )
+            response.raise_for_status()  # HTTPError for bad responses (4xx, 5xx)
+
+            # Log raw response to check its format
+            logging.info(f"Raw response: {response.text}")
+
+            # Try to parse JSON, handle cases where it fails
+            try:
+                return response.json()
+            except ValueError:
+                logging.error(f"Failed to parse JSON from response: {response.text}")
+                return None
+        except requests.RequestException as e:
+            logging.error(f"Request failed: {e}")
+            return None
 
     def list_devices(self, tailnet):
         """
