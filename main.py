@@ -5,7 +5,7 @@ from discord.ext import commands, tasks
 import os, logging
 from dotenv import load_dotenv
 from services.api.TailscaleAPI import TailscaleAPI
-from services.acl_commands import acl_commands
+from services import acl_commands
 from settings.bot_context import BotContext
 import asyncio
 

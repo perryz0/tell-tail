@@ -6,17 +6,17 @@ class TailscaleAPI:
     """
 
     BASE_URL = "https://api.tailscale.com/api/v2"
-    api_token = os.getenv("TAILSCALE_API_TOKEN")
-    if not api_token:
-        raise ValueError("API Token not found within .env!")
 
-    def __init__(self, api_token):
+    def __init__(self, api_token=None):
         """
         Initialize the Tailscale API client.
 
         :param api_token: Current API key stored in venv.
         """
-        self.api_token = api_token
+        # Load the API token during initialization
+        self.api_token = api_token or os.getenv("TAILSCALE_API_TOKEN")
+        if not self.api_token:
+            raise ValueError("API Token not found within .env!")
 
     def _make_request(self, method, endpoint, params=None, data=None):
         """
@@ -40,7 +40,7 @@ class TailscaleAPI:
             params=params,
             json=data,
         )
-        response.raise_for_status()  # Raise HTTPError for bad responses (4xx, 5xx)
+        response.raise_for_status()
         return response.json()
 
     def list_devices(self, tailnet):
