@@ -1,8 +1,12 @@
 import requests
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 TAILSCALE_API_TOKEN = os.getenv("TAILSCALE_API_TOKEN")
 TAILNET_NAME = os.getenv("TAILNET_NAME")
+# print(f"Loaded the TAILNET NAME: {TAILNET_NAME}")
 
 class ACLManager:
     def __init__(self):
