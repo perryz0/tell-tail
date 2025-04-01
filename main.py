@@ -13,6 +13,7 @@ import asyncio
 # Load .env variables
 load_dotenv()
 DISCORD_TOKEN: Final[str] = os.getenv('DISCORD_BOT_TOKEN')
+TAILNET_NAME = os.getenv("TAILNET_NAME")
 
 # API and BOT setup
 TAILSCALE_TOKEN: Final[str] = os.getenv('TAILSCALE_API_TOKEN')
@@ -69,9 +70,7 @@ async def monitor_tailnet_changes():
     """
     try:
         devices = ts.list_devices(context.tailnet)
-        # Logic for detecting changes (e.g., new devices, disconnected devices)
-        # Example:
-        logging.info("Monitoring Tailnet for changes...")
+        logging.info(f"Monitoring Tailnet `{TAILNET_NAME}` for changes...")     # Basic console logging for now
     except Exception as e:
         logging.error(f"Error monitoring Tailnet: {e}")
 
