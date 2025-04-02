@@ -19,13 +19,26 @@ async def remove_user(ctx, username: str):
     except Exception as e:
         await ctx.send(f"❌ Error removing user: {str(e)}")
 
-async def list_users(ctx):
-    """List all users with SSH access."""
+# TODO: gotta add granularity here as well
+async def list_acl_roles(ctx):
+    """List all user roles in the ACL."""
     try:
-        users = acl_manager.list_users()
+        users = acl_manager.list_acl_roles()
         if users:
-            user_list = "\n".join(users)
-            await ctx.send(f"🔑 Users with SSH access:\n{user_list}")
+            acl_list = "\n".join(users)
+            await ctx.send(f"🔑 Users with SSH access:\n{acl_list}")
+        else:
+            await ctx.send("No users found.")
+    except Exception as e:
+        await ctx.send(f"❌ Error listing roles: {str(e)}")
+
+async def list_tailnet_users(ctx):
+    """List all users in tailnet."""
+    try:
+        users = acl_manager.list_tailnet_users()
+        if users:
+            tailnet_list = "\n".join(users)
+            await ctx.send(f"🔑 Users in tailnet:\n{tailnet_list}")
         else:
             await ctx.send("No users found.")
     except Exception as e:

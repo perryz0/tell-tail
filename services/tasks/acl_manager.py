@@ -30,8 +30,8 @@ class ACLManager:
         """Fetch the current ACL configuration."""
         return self._make_request("GET", "/acl")
 
-    def list_acl_users(self):
-        """List all users in the current ACL."""
+    def list_acl_roles(self):
+        """List all user roles in the current ACL."""
         acls = self.get_acls()
         if acls:
             users = [entry['users'] for entry in acls.get('acls', [])]
@@ -40,12 +40,13 @@ class ACLManager:
     
     def list_tailnet_users(self):
         """List all active users on the Tailnet."""
-        endpoint = f"/tailnet/{TAILNET_NAME}/devices"
+        endpoint = "/devices"
         response = self._make_request("GET", endpoint)
-        if not response:
+        if not response or "devices" not in response:
             return []
+
         # Extract unique usernames from device data
-        active_users = {device.get("hostname") for device in response}
+        active_users = {device.get("hostname") for device in response["devices"]}
         return list(active_users)
 
     def add_user_to_acl(self, username, ports=None):
@@ -63,7 +64,7 @@ class ACLManager:
             return "Error fetching current ACLs."
 
         # Check if user already exists in the ACL
-        if f"user:{username}" in self.list_acl_users():
+        if f"user:{username}" in self.list_acl_roles():
             return f"User {username} already exists in ACL."
 
         # Update the ACL by adding a new user entry
@@ -96,7 +97,7 @@ class ACLManager:
 
     def update_user_acl(self, username, new_ports):
         """Update the ports for an existing user."""
-        if f"user:{username}" not in self.list_users():
+        if f"user:{username}" not in self.list_acl_roles():
             return f"User {username} not found in ACL."
 
         existing_acls = self.get_acls()

@@ -69,7 +69,7 @@ async def monitor_tailnet_changes():
     Periodically check for changes in the Tailscale network and send alerts to a Discord channel.
     """
     try:
-        devices = ts.list_devices(context.tailnet)
+        # devices = ts.list_devices(context.tailnet)
         logging.info(f"Monitoring Tailnet `{TAILNET_NAME}` for changes...")     # Basic console logging for now
     except Exception as e:
         logging.error(f"Error monitoring Tailnet: {e}")
@@ -93,9 +93,14 @@ async def adduser(ctx, username: str, ports: str = "22/tcp"):
 async def removeuser(ctx, username: str):
     await acl_commands.remove_user(ctx, username)
 
-@client.command(name="listusers", help="List all users with SSH access")
+@client.command(name="listusers", help=f"List all current users in `{TAILNET_NAME}`")
 async def listusers(ctx):
-    await acl_commands.list_users(ctx)
+    await acl_commands.list_tailnet_users(ctx)
+
+# TODO: fine-grained ACL display coming soon...
+@client.command(name="listroles", help="List all current user roles in `{TAILNET_NAME}` with SSH access")
+async def listroles(ctx):
+    await acl_commands.list_acl_roles(ctx)
 
 @client.command(name="updateuser", help="Update user ACL ports")
 async def updateuser(ctx, username: str, ports: str):
