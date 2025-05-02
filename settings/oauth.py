@@ -132,12 +132,21 @@ def create_oauth_bp(bp):
 
     @bp.route("/logout")
     def logout():
+        # Get the next URL from the query parameter or default to root
+        next_url = request.args.get('next', '/')
+        
         # Clear the session
         session.clear()
-        return jsonify({
-            "success": True,
-            "message": "Successfully logged out",
-        })
+        
+        # Return JSON response for API calls or redirect for web requests
+        if request.headers.get('Accept', '').startswith('application/json'):
+            return jsonify({
+                "success": True,
+                "message": "Successfully logged out",
+            })
+        else:
+            # Redirect to the next URL (typically the login page)
+            return redirect(next_url)
         
     @bp.route("/me")
     @login_required

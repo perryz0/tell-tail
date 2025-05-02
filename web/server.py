@@ -54,16 +54,43 @@ def create_app():
     auth_bp = create_oauth_bp(auth_bp)
     app.register_blueprint(auth_bp)
     
-    # Root route for dashboard
+    # Root route for dashboard with auth check
     @app.route('/')
     def root():
-        return redirect(url_for('dashboard'))
+        # Check if user is logged in
+        if session.get('user'):
+            return redirect(url_for('dashboard'))
+        else:
+            return redirect(url_for('login_page'))
+    
+    # Login page route
+    @app.route('/login')
+    def login_page():
+        # If already logged in, redirect to dashboard
+        if session.get('user'):
+            return redirect(url_for('dashboard'))
+        return render_template('login.html')
     
     # Dashboard route with user info from session
     @app.route('/dashboard')
     def dashboard():
         user = session.get('user')
+        # If not logged in, redirect to login
+        if not user:
+            return redirect(url_for('login_page'))
         return render_template('dashboard.html', user=user)
+    
+    # Redirect from /login to the OAuth login page
+    @app.route('/auth/login')
+    def login_redirect():
+        return redirect(url_for('auth.login', next='/dashboard'))
+    
+    # Custom logout route that redirects to login page
+    @app.route('/logout')
+    def logout():
+        # Clear the session
+        session.clear()
+        return redirect(url_for('login_page'))
     
     # Health check endpoint
     @app.route('/health')
@@ -73,11 +100,6 @@ def create_app():
             "name": "TellTail API",
             "version": "1.0.0"
         }
-    
-    # Redirect for login page
-    @app.route('/login')
-    def login_redirect():
-        return redirect(url_for('auth.login', next='/dashboard'))
     
     # Handle favicon
     @app.route('/favicon.ico')

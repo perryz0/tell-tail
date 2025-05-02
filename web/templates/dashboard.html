@@ -53,7 +53,7 @@
                                     <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png" alt="Avatar" class="user-avatar">
                                 {% endif %}
                                 <span class="me-3">{{ user.username }}</span>
-                                <a href="/api/logout" class="btn btn-outline-danger btn-sm">Logout</a>
+                                <a href="/logout" class="btn btn-outline-danger btn-sm">Logout</a>
                             {% else %}
                                 <a href="/auth/login" class="btn btn-primary">Login with Discord</a>
                             {% endif %}
@@ -424,6 +424,19 @@
                 
                 // Log initial message
                 addLogEntry('Dashboard loaded', 'info');
+                
+                // Periodically check if still authenticated
+                setInterval(async () => {
+                    try {
+                        const response = await fetch('/api/me');
+                        if (response.status === 401) {
+                            // Session expired, redirect to login
+                            window.location.href = '/login';
+                        }
+                    } catch (error) {
+                        console.error('Error checking authentication status:', error);
+                    }
+                }, 60000); // Check every minute
             }
         });
     </script>
