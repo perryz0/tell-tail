@@ -323,6 +323,83 @@ async def audit_log(ctx, lines: int = 10):
         logger.error(f"Error reading audit log: {e}")
         await ctx.send(f"❌ Failed to read audit log: {str(e)}")
 
+@client.command(name="auditlog", help="Admin only: View the command audit log")
+async def auditlog(ctx, lines: int = 10):
+    """Show command audit log entries for administrators only."""
+    try:
+        # Check if the user is authorized to access the audit log
+        admin_ids = os.getenv("AUDIT_ADMINS", "").split(",")
+        admin_ids = [admin_id.strip() for admin_id in admin_ids if admin_id.strip()]
+        
+        if not admin_ids:
+            logger.warning("AUDIT_ADMINS environment variable is not set or is empty")
+            await ctx.send("❌ This command is disabled because no admin users are configured.")
+            return
+        
+        # Convert user ID to string for comparison
+        user_id_str = str(ctx.author.id)
+        
+        if user_id_str not in admin_ids:
+            logger.warning(f"Unauthorized access attempt to auditlog by {ctx.author.name} (ID: {user_id_str})")
+            await ctx.send("❌ You do not have permission to use this command.")
+            return
+        
+        # Check if the log file exists
+        from services.logging.audit import AUDIT_LOG_FILE
+        
+        if not os.path.exists(AUDIT_LOG_FILE):
+            await ctx.send("📝 No audit log entries found. The log file hasn't been created yet.")
+            return
+        
+        # Limit the number of lines for safety
+        max_lines = 50
+        if lines > max_lines:
+            lines = max_lines
+            await ctx.send(f"⚠️ Limiting output to {max_lines} lines for safety.")
+        
+        # Read the last N lines of the file
+        entries = []
+        with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+            entries = all_lines[-lines:] if lines < len(all_lines) else all_lines
+        
+        if not entries:
+            await ctx.send("📝 No audit log entries found.")
+            return
+        
+        # Format and send the log entries
+        log_content = "".join(entries)
+        
+        # For long logs, split into multiple messages (Discord has a 2000 char limit)
+        if len(log_content) > 1900:
+            chunks = []
+            current_chunk = "🔒 **ADMIN: Command Audit Log**\n```"
+            
+            for entry in entries:
+                if len(current_chunk) + len(entry) > 1900:
+                    current_chunk += "```"
+                    chunks.append(current_chunk)
+                    current_chunk = "```"
+                
+                current_chunk += entry
+            
+            if current_chunk:
+                current_chunk += "```"
+                chunks.append(current_chunk)
+            
+            for chunk in chunks:
+                await ctx.send(chunk)
+        else:
+            await ctx.send(f"🔒 **ADMIN: Command Audit Log**\n```{log_content}```")
+        
+        # Log this access to the audit log itself
+        from services.logging.audit import log_command_audit
+        log_command_audit(ctx.author.name, "auditlog", str(lines))
+        
+    except Exception as e:
+        logger.error(f"Error reading audit log: {e}")
+        await ctx.send(f"❌ Failed to read audit log: {str(e)}")
+
 # Run the bot
 if __name__ == "__main__":
     client.run(DISCORD_TOKEN)
