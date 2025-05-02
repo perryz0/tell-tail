@@ -4,10 +4,11 @@ Provides HTTP access to Tailscale devices and ACL management.
 """
 
 import json
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, session
 from services.api.TailscaleAPI import TailscaleAPI
 from services.tasks.acl_manager import ACLManager
 from services.logging import logger
+from settings.oauth import login_required
 from typing import Dict, Any, Optional, List, Union
 
 # Create a Flask blueprint for API routes
@@ -44,6 +45,7 @@ def api_response(success: bool, message: str = "", data: Any = None, status_code
 
 
 @api_bp.route('/devices', methods=['GET'])
+@login_required
 def get_devices():
     """
     Get all devices in the Tailnet.
@@ -79,6 +81,7 @@ def get_devices():
 
 
 @api_bp.route('/acls', methods=['GET'])
+@login_required
 def get_acls():
     """
     Get all ACLs in the Tailnet.
@@ -102,6 +105,7 @@ def get_acls():
 
 
 @api_bp.route('/acl/add', methods=['POST'])
+@login_required
 def add_user_to_acl():
     """
     Add a user to the ACL.
@@ -148,6 +152,10 @@ def add_user_to_acl():
         if isinstance(result, str) and "Error" in result:
             return api_response(False, result, status_code=400)
             
+        # Log the action with the authenticated user
+        user_id = session.get('user', {}).get('username', 'unknown')
+        logger.info(f"User {user_id} added {username} to ACL with ports: {ports}")
+            
         return api_response(True, f"User {username} added to ACL", status_code=201)
         
     except Exception as e:
@@ -156,6 +164,7 @@ def add_user_to_acl():
 
 
 @api_bp.route('/acl/remove', methods=['POST'])
+@login_required
 def remove_user_from_acl():
     """
     Remove a user from the ACL.
@@ -187,8 +196,58 @@ def remove_user_from_acl():
         if isinstance(result, str) and "Error" in result:
             return api_response(False, result, status_code=400)
             
+        # Log the action with the authenticated user
+        user_id = session.get('user', {}).get('username', 'unknown')
+        logger.info(f"User {user_id} removed {username} from ACL")
+            
         return api_response(True, f"User {username} removed from ACL")
         
     except Exception as e:
         logger.error(f"Error removing user from ACL: {str(e)}")
-        return api_response(False, "Failed to remove user from ACL", status_code=500) 
+        return api_response(False, "Failed to remove user from ACL", status_code=500)
+
+
+@api_bp.route('/me', methods=['GET'])
+@login_required
+def get_current_user():
+    """
+    Get the currently logged-in user's information.
+    
+    Returns:
+        JSON representation of the current user
+    """
+    try:
+        # Return the user from the session
+        user = session.get('user')
+        if not user:
+            return api_response(False, "No user logged in", status_code=401)
+            
+        return api_response(True, "User info retrieved successfully", user)
+        
+    except Exception as e:
+        logger.error(f"Error getting current user: {str(e)}")
+        return api_response(False, "Failed to retrieve user info", status_code=500)
+
+
+@api_bp.route('/logout', methods=['GET'])
+def logout():
+    """
+    Log out the current user by clearing the session.
+    
+    Returns:
+        JSON response indicating success
+    """
+    try:
+        # Log the logout if a user is in the session
+        if session.get('user'):
+            username = session['user'].get('username', 'unknown')
+            logger.info(f"User {username} logged out")
+            
+        # Clear the session
+        session.clear()
+        
+        return api_response(True, "Successfully logged out")
+        
+    except Exception as e:
+        logger.error(f"Error logging out: {str(e)}")
+        return api_response(False, "Failed to log out", status_code=500) 

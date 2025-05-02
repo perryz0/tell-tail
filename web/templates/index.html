@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TellTail API Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 20px;
+        }
+        .device-card {
+            margin-bottom: 15px;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h2>TellTail API Dashboard</h2>
+                        <div>
+                            <div id="login-section">
+                                <a href="/auth/login" class="btn btn-primary">Login with Discord</a>
+                            </div>
+                            <div id="user-section" class="hidden">
+                                <span id="username-display" class="me-2"></span>
+                                <button id="logout-btn" class="btn btn-outline-danger">Logout</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="authenticated-content" class="hidden">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h3>Devices</h3>
+                        </div>
+                        <div class="card-body">
+                            <button id="refresh-devices" class="btn btn-primary mb-3">Refresh Devices</button>
+                            <div id="devices-container">
+                                <p>Loading devices...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h3>ACL Management</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <h5>Add User to ACL</h5>
+                                <form id="add-user-form">
+                                    <div class="mb-2">
+                                        <label for="username" class="form-label">Username</label>
+                                        <input type="text" class="form-control" id="username" required>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label for="ports" class="form-label">Ports (comma-separated)</label>
+                                        <input type="text" class="form-control" id="ports" value="22/tcp">
+                                    </div>
+                                    <div class="mb-2">
+                                        <label for="ttl-hours" class="form-label">TTL Hours (optional)</label>
+                                        <input type="number" class="form-control" id="ttl-hours">
+                                    </div>
+                                    <button type="submit" class="btn btn-success">Add User</button>
+                                </form>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <h5>Remove User from ACL</h5>
+                                <form id="remove-user-form">
+                                    <div class="mb-2">
+                                        <label for="remove-username" class="form-label">Username</label>
+                                        <input type="text" class="form-control" id="remove-username" required>
+                                    </div>
+                                    <button type="submit" class="btn btn-danger">Remove User</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>ACL Configuration</h3>
+                        </div>
+                        <div class="card-body">
+                            <button id="refresh-acls" class="btn btn-primary mb-3">Refresh ACLs</button>
+                            <div id="acls-container">
+                                <p>Loading ACLs...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Check if user is logged in
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/me');
+                
+                if (response.status === 401) {
+                    // User is not logged in
+                    document.getElementById('login-section').classList.remove('hidden');
+                    document.getElementById('user-section').classList.add('hidden');
+                    document.getElementById('authenticated-content').classList.add('hidden');
+                    return false;
+                }
+                
+                const data = await response.json();
+                
+                if (data.success && data.data) {
+                    // User is logged in
+                    document.getElementById('username-display').textContent = `Hello, ${data.data.username}!`;
+                    document.getElementById('login-section').classList.add('hidden');
+                    document.getElementById('user-section').classList.remove('hidden');
+                    document.getElementById('authenticated-content').classList.remove('hidden');
+                    return true;
+                } else {
+                    // Error or not logged in
+                    document.getElementById('login-section').classList.remove('hidden');
+                    document.getElementById('user-section').classList.add('hidden');
+                    document.getElementById('authenticated-content').classList.add('hidden');
+                    return false;
+                }
+            } catch (error) {
+                console.error('Error checking auth:', error);
+                return false;
+            }
+        }
+        
+        // Fetch devices
+        async function fetchDevices() {
+            try {
+                const response = await fetch('/api/devices');
+                
+                if (response.status === 401) {
+                    checkAuth();
+                    return;
+                }
+                
+                const data = await response.json();
+                const devicesContainer = document.getElementById('devices-container');
+                
+                if (data.success && data.data && data.data.length > 0) {
+                    let html = `
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Hostname</th>
+                                        <th>IP</th>
+                                        <th>Status</th>
+                                        <th>Last Seen</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                    `;
+                    
+                    data.data.forEach(device => {
+                        const hostname = device.hostname || 'Unknown';
+                        const ip = device.addresses && device.addresses.length > 0 ? device.addresses[0] : 'No IP';
+                        const status = device.online ? 'Online' : 'Offline';
+                        const lastSeen = device.lastSeen || 'Unknown';
+                        
+                        html += `
+                            <tr>
+                                <td>${hostname}</td>
+                                <td>${ip}</td>
+                                <td>${status}</td>
+                                <td>${lastSeen}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    html += `</tbody></table></div>`;
+                    devicesContainer.innerHTML = html;
+                } else {
+                    devicesContainer.innerHTML = '<p>No devices found or error loading devices.</p>';
+                }
+            } catch (error) {
+                console.error('Error fetching devices:', error);
+                document.getElementById('devices-container').innerHTML = '<p>Error loading devices.</p>';
+            }
+        }
+        
+        // Fetch ACLs
+        async function fetchACLs() {
+            try {
+                const response = await fetch('/api/acls');
+                
+                if (response.status === 401) {
+                    checkAuth();
+                    return;
+                }
+                
+                const data = await response.json();
+                const aclsContainer = document.getElementById('acls-container');
+                
+                if (data.success && data.data) {
+                    aclsContainer.innerHTML = `<pre>${JSON.stringify(data.data, null, 2)}</pre>`;
+                } else {
+                    aclsContainer.innerHTML = '<p>No ACLs found or error loading ACLs.</p>';
+                }
+            } catch (error) {
+                console.error('Error fetching ACLs:', error);
+                document.getElementById('acls-container').innerHTML = '<p>Error loading ACLs.</p>';
+            }
+        }
+        
+        // Add user to ACL
+        async function addUser(event) {
+            event.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const ports = document.getElementById('ports').value;
+            const ttlHours = document.getElementById('ttl-hours').value;
+            
+            const payload = {
+                username: username,
+                ports: ports
+            };
+            
+            if (ttlHours) {
+                payload.ttl_hours = parseInt(ttlHours);
+            }
+            
+            try {
+                const response = await fetch('/api/acl/add', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('User added successfully');
+                    document.getElementById('add-user-form').reset();
+                    fetchACLs();
+                } else {
+                    alert(`Error: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Error adding user:', error);
+                alert('Error adding user');
+            }
+        }
+        
+        // Remove user from ACL
+        async function removeUser(event) {
+            event.preventDefault();
+            
+            const username = document.getElementById('remove-username').value;
+            
+            try {
+                const response = await fetch('/api/acl/remove', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('User removed successfully');
+                    document.getElementById('remove-user-form').reset();
+                    fetchACLs();
+                } else {
+                    alert(`Error: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Error removing user:', error);
+                alert('Error removing user');
+            }
+        }
+        
+        // Logout
+        async function logout() {
+            try {
+                const response = await fetch('/api/logout');
+                const data = await response.json();
+                
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Error logging out');
+                }
+            } catch (error) {
+                console.error('Error logging out:', error);
+                alert('Error logging out');
+            }
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Check authentication
+            const isAuthenticated = await checkAuth();
+            
+            if (isAuthenticated) {
+                // Load data
+                fetchDevices();
+                fetchACLs();
+            }
+            
+            // Add event listeners
+            document.getElementById('refresh-devices').addEventListener('click', fetchDevices);
+            document.getElementById('refresh-acls').addEventListener('click', fetchACLs);
+            document.getElementById('add-user-form').addEventListener('submit', addUser);
+            document.getElementById('remove-user-form').addEventListener('submit', removeUser);
+            document.getElementById('logout-btn').addEventListener('click', logout);
+        });
+    </script>
+</body>
+</html> 
