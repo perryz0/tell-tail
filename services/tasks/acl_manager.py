@@ -1,7 +1,10 @@
 import requests
 import os
+import json
+import difflib
 from dotenv import load_dotenv
 from services.logging import logger
+from services.hooks.webhooks import trigger_webhook
 
 load_dotenv()
 
@@ -28,6 +31,44 @@ class ACLManager:
         except requests.RequestException as e:
             logger.error(f"Error in API request: {e}")
             return None
+
+    def _log_acl_diff(self, original_acl, updated_acl, operation, username):
+        """
+        Log the diff between original and updated ACLs after a successful change.
+        
+        Args:
+            original_acl: The original ACL configuration
+            updated_acl: The updated ACL configuration
+            operation: The operation performed (add, remove, update)
+            username: The username that was modified
+        """
+        try:
+            # Convert to pretty-printed JSON strings for comparison
+            original_json = json.dumps(original_acl, indent=2, sort_keys=True)
+            updated_json = json.dumps(updated_acl, indent=2, sort_keys=True)
+            
+            # Create a unified diff
+            diff = list(difflib.unified_diff(
+                original_json.splitlines(),
+                updated_json.splitlines(),
+                fromfile='Original ACL',
+                tofile='Updated ACL',
+                lineterm=''
+            ))
+            
+            # Log the changes
+            if diff:
+                logger.info(f"ACL DIFF ({operation} {username}):")
+                for line in diff[:20]:  # Limit to first 20 lines for brevity
+                    logger.info(f"  {line}")
+                
+                if len(diff) > 20:
+                    logger.info(f"  ... and {len(diff) - 20} more lines")
+            else:
+                logger.info(f"No changes detected in ACL ({operation} {username})")
+                
+        except Exception as e:
+            logger.error(f"Error generating ACL diff: {e}")
 
     def get_acls(self):
         """Fetch the current ACL configuration."""
@@ -80,6 +121,9 @@ class ACLManager:
             logger.warning(f"User {username} already exists in ACL")
             return f"User {username} already exists in ACL."
 
+        # Store the original ACL for diff comparison
+        original_acl = dict(existing_acls)
+        
         # Update the ACL by adding a new user entry
         new_entry = {
             "users": [f"user:{username}"],
@@ -91,7 +135,26 @@ class ACLManager:
         data = {"acls": updated_acls}
 
         logger.info(f"Updating ACL with new entry for user {username}")
-        return self._make_request("POST", "/acl", data)
+        result = self._make_request("POST", "/acl", data)
+        
+        # Log the diff and trigger webhook if the update was successful
+        if result:
+            # Get the updated ACLs to compare with the original
+            updated_acl = self.get_acls()
+            if updated_acl:
+                self._log_acl_diff(original_acl, updated_acl, "add", username)
+                
+                # Trigger webhook
+                webhook_payload = {
+                    "operation": "add",
+                    "username": username,
+                    "ports": ports,
+                    "tailnet": TAILNET_NAME,
+                    "success": True
+                }
+                trigger_webhook("acl.user.added", webhook_payload)
+        
+        return result
 
     def remove_user_from_acl(self, username):
         """Remove a user from the ACL."""
@@ -101,6 +164,16 @@ class ACLManager:
             logger.error("Failed to fetch current ACLs")
             return "Error fetching current ACLs."
 
+        # Store the original ACL for diff comparison
+        original_acl = dict(existing_acls)
+        
+        # Find user's current ports for webhook payload
+        current_ports = []
+        for entry in existing_acls.get("acls", []):
+            if f"user:{username}" in entry.get("users", []):
+                current_ports = entry.get("ports", [])
+                break
+        
         # Filter out user from existing ACLs
         updated_acls = [
             entry for entry in existing_acls.get("acls", [])
@@ -109,7 +182,26 @@ class ACLManager:
 
         data = {"acls": updated_acls}
         logger.info(f"Updating ACL after removing user {username}")
-        return self._make_request("POST", "/acl", data)
+        result = self._make_request("POST", "/acl", data)
+        
+        # Log the diff and trigger webhook if the update was successful
+        if result:
+            # Get the updated ACLs to compare with the original
+            updated_acl = self.get_acls()
+            if updated_acl:
+                self._log_acl_diff(original_acl, updated_acl, "remove", username)
+                
+                # Trigger webhook
+                webhook_payload = {
+                    "operation": "remove",
+                    "username": username,
+                    "ports": current_ports,
+                    "tailnet": TAILNET_NAME,
+                    "success": True
+                }
+                trigger_webhook("acl.user.removed", webhook_payload)
+        
+        return result
 
     def update_user_acl(self, username, new_ports):
         """Update the ports for an existing user."""
@@ -123,11 +215,37 @@ class ACLManager:
             logger.error("Failed to fetch current ACLs")
             return "Error fetching current ACLs."
 
-        # Update ports for given user
+        # Store the original ACL for diff comparison
+        original_acl = dict(existing_acls)
+        
+        # Find old ports for webhook payload
+        old_ports = []
         for entry in existing_acls.get("acls", []):
             if f"user:{username}" in entry.get("users", []):
+                old_ports = entry.get("ports", [])
                 entry["ports"] = new_ports
+                break
 
         data = {"acls": existing_acls["acls"]}
         logger.info(f"Updating ACL with new ports for user {username}")
-        return self._make_request("POST", "/acl", data)
+        result = self._make_request("POST", "/acl", data)
+        
+        # Log the diff and trigger webhook if the update was successful
+        if result:
+            # Get the updated ACLs to compare with the original
+            updated_acl = self.get_acls()
+            if updated_acl:
+                self._log_acl_diff(original_acl, updated_acl, "update", username)
+                
+                # Trigger webhook
+                webhook_payload = {
+                    "operation": "update",
+                    "username": username,
+                    "old_ports": old_ports,
+                    "new_ports": new_ports,
+                    "tailnet": TAILNET_NAME,
+                    "success": True
+                }
+                trigger_webhook("acl.user.updated", webhook_payload)
+        
+        return result
