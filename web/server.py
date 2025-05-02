@@ -4,7 +4,7 @@ Provides a web API for managing Tailscale networks.
 """
 
 import os
-from flask import Flask, Blueprint, redirect, url_for, render_template, send_from_directory
+from flask import Flask, Blueprint, redirect, url_for, render_template, send_from_directory, session
 from dotenv import load_dotenv
 from services.api.TailscaleAPI import TailscaleAPI
 from services.logging import logger
@@ -57,7 +57,13 @@ def create_app():
     # Root route for dashboard
     @app.route('/')
     def root():
-        return render_template('index.html')
+        return redirect(url_for('dashboard'))
+    
+    # Dashboard route with user info from session
+    @app.route('/dashboard')
+    def dashboard():
+        user = session.get('user')
+        return render_template('dashboard.html', user=user)
     
     # Health check endpoint
     @app.route('/health')
@@ -71,7 +77,7 @@ def create_app():
     # Redirect for login page
     @app.route('/login')
     def login_redirect():
-        return redirect(url_for('auth.login'))
+        return redirect(url_for('auth.login', next='/dashboard'))
     
     # Handle favicon
     @app.route('/favicon.ico')
