@@ -155,6 +155,13 @@ async def on_ready():
     logger.info("Connected guilds:")
     for guild in client.guilds:
         logger.info(f"- {guild.name} (ID: {guild.id})")
+    
+    # Log admin configuration status
+    if context.audit_admins:
+        logger.info(f"Audit log access configured for {len(context.audit_admins)} admin(s)")
+    else:
+        logger.warning("No audit admins configured. The !auditlog command will not be available to anyone.")
+    
     # Start background tasks
     monitor_tailnet_changes.start()
     # Start ACL expiry checker
@@ -722,55 +729,47 @@ async def auditlog(ctx, lines: int = 10):
     - lines: Number of recent log entries to show (default: 10, max: 50)
     """
     try:
-        # Check if the user is authorized to access the audit log
-        admin_ids = os.getenv("AUDIT_ADMINS", "").split(",")
-        admin_ids = [admin_id.strip() for admin_id in admin_ids if admin_id.strip()]
-        
-        if not admin_ids:
-            logger.warning("AUDIT_ADMINS environment variable is not set or is empty")
+        # Check if any admins are configured
+        if not context.audit_admins:
+            logger.warning("Audit log access attempted but no admins are configured")
             await ctx.send("❌ This command is disabled because no admin users are configured.")
             return
-        
-        # Convert user ID to string for comparison
-        user_id_str = str(ctx.author.id)
-        
-        if user_id_str not in admin_ids:
-            logger.warning(f"Unauthorized access attempt to auditlog by {ctx.author.name} (ID: {user_id_str})")
+            
+        # Check if the user is authorized to access the audit log
+        if str(ctx.author.id) not in context.audit_admins:
+            logger.warning(f"Unauthorized access attempt to auditlog by {ctx.author.name} (ID: {ctx.author.id})")
             await ctx.send("❌ You do not have permission to use this command.")
             return
+            
+        # Log this access attempt to the audit log
+        from services.logging.audit import log_command, read_last_n_lines
+        log_command(ctx, "auditlog", [lines])
         
-        # Check if the log file exists
-        from services.logging.audit import AUDIT_LOG_FILE
-        
-        if not os.path.exists(AUDIT_LOG_FILE):
-            await ctx.send("📝 No audit log entries found. The log file hasn't been created yet.")
-            return
-        
-        # Limit the number of lines for safety
+        # Cap the number of lines for safety
         max_lines = 50
         if lines > max_lines:
             lines = max_lines
             await ctx.send(f"⚠️ Limiting output to {max_lines} lines for safety.")
+        elif lines < 1:
+            lines = 10
+            await ctx.send(f"⚠️ Invalid line count, using default of 10 lines.")
         
-        # Read the last N lines of the file
-        entries = []
-        with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
-            all_lines = f.readlines()
-            entries = all_lines[-lines:] if lines < len(all_lines) else all_lines
+        # Get the last n log entries
+        log_entries = read_last_n_lines(lines)
         
-        if not entries:
+        if not log_entries:
             await ctx.send("📝 No audit log entries found.")
             return
+            
+        # Format the log entries for display
+        log_content = "".join(log_entries)
         
-        # Format and send the log entries
-        log_content = "".join(entries)
-        
-        # For long logs, split into multiple messages (Discord has a 2000 char limit)
+        # Split long logs into multiple messages (Discord has a 2000 char limit)
         if len(log_content) > 1900:
             chunks = []
-            current_chunk = "🔒 **ADMIN: Command Audit Log**\n```"
+            current_chunk = "🔒 **Admin Audit Log**\n```"
             
-            for entry in entries:
+            for entry in log_entries:
                 if len(current_chunk) + len(entry) > 1900:
                     current_chunk += "```"
                     chunks.append(current_chunk)
@@ -778,27 +777,23 @@ async def auditlog(ctx, lines: int = 10):
                 
                 current_chunk += entry
             
-            if current_chunk:
+            if current_chunk and current_chunk != "```":
                 current_chunk += "```"
                 chunks.append(current_chunk)
             
             for chunk in chunks:
                 await ctx.send(chunk)
         else:
-            await ctx.send(f"🔒 **ADMIN: Command Audit Log**\n```{log_content}```")
-        
-        # Log this access to the audit log itself
-        from services.logging.audit import log_command_audit
-        log_command_audit(ctx.author.name, "auditlog", str(lines))
-        
+            await ctx.send(f"🔒 **Admin Audit Log**\n```{log_content}```")
+            
     except Exception as e:
         logger.error(f"Error reading audit log: {e}")
-        await ctx.send(f"❌ Failed to read audit log: {str(e)}")
+        await ctx.send(f"❌ Error: {str(e)}")
 
 
 @auditlog.error
 async def auditlog_error(ctx, error):
-    """Error handler for the auditlog command"""
+    """Handle errors in the auditlog command"""
     if isinstance(error, commands.BadArgument):
         await ctx.send("❌ Error: Lines parameter must be a number. Usage: `!auditlog [lines]`")
     else:

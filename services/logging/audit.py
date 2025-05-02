@@ -81,4 +81,32 @@ def log_command(ctx, command_name: str, args: List[Any]) -> None:
             
     except Exception as e:
         # Log errors but don't break command execution
-        logger.error(f"Failed to write to command audit log: {str(e)}") 
+        logger.error(f"Failed to write to command audit log: {str(e)}")
+
+def read_last_n_lines(n: int = 10) -> List[str]:
+    """
+    Read the last n lines from the audit log file.
+    
+    Args:
+        n: Number of lines to read from the end of the file
+        
+    Returns:
+        List of strings containing the last n lines of the audit log
+    """
+    try:
+        # Check if the file exists
+        if not os.path.exists(AUDIT_LOG_FILE):
+            logger.warning(f"Audit log file does not exist: {AUDIT_LOG_FILE}")
+            return []
+            
+        # Read the file and get the last n lines
+        with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
+            # Read all lines (this could be optimized for very large files)
+            all_lines = f.readlines()
+            
+        # Get the last n lines or all lines if there are fewer than n
+        return all_lines[-n:] if len(all_lines) >= n else all_lines
+        
+    except Exception as e:
+        logger.error(f"Error reading audit log: {str(e)}")
+        return [] 
