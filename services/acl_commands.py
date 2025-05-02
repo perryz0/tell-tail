@@ -1,5 +1,5 @@
 from discord.ext import commands
-from services.tasks.acl_manager import ACLManager
+from services.tasks.acl_manager import ACLManager, ROLE_PRESETS
 from services.logging import logger
 from services.logging.audit import log_command
 import discord
@@ -12,24 +12,61 @@ async def add_user(ctx, username: str, ports: str = "22/tcp", ttl_hours: int = N
     
     Parameters:
         username: The username to add
-        ports: Comma-separated list of ports (default: 22/tcp)
+        ports: Comma-separated list of ports or a role preset name (default: 22/tcp)
         ttl_hours: Optional time-to-live in hours for temporary access
     """
     try:
         # Log command to audit log
         log_command(ctx, "adduser", [username, ports, ttl_hours])
         
-        logger.info(f"Adding user {username} with ports {ports}")
+        logger.info(f"Adding user {username} with ports/role {ports}")
         if ttl_hours is not None:
             logger.info(f"Setting temporary access with TTL of {ttl_hours} hours")
             await ctx.send(f"⏱️ Adding {username} with temporary access ({ttl_hours} hours)")
-            result = acl_manager.add_user_to_acl(username, ports.split(","), ttl_hours)
+            result = acl_manager.add_user_to_acl(username, ports, ttl_hours)
         else:
-            result = acl_manager.add_user_to_acl(username, ports.split(","))
+            result = acl_manager.add_user_to_acl(username, ports)
         
         await ctx.send(f"✅ {result}")
     except Exception as e:
         logger.error(f"Error adding user {username}: {str(e)}")
+        await ctx.send(f"❌ Error adding user: {str(e)}")
+
+async def add_role_user(ctx, username: str, role: str, ttl_hours: int = None):
+    """
+    Add a user to the ACL with a predefined role preset.
+    
+    Parameters:
+        username: The username to add
+        role: The role preset name (dev, frontend, infra, etc.)
+        ttl_hours: Optional time-to-live in hours for temporary access
+    """
+    try:
+        # Check if the role exists
+        if role not in ROLE_PRESETS:
+            available_roles = ", ".join(ROLE_PRESETS.keys())
+            await ctx.send(f"❌ Unknown role '{role}'. Available roles: {available_roles}")
+            return
+            
+        # Log command to audit log
+        log_command(ctx, "addroleuser", [username, role, ttl_hours])
+        
+        # Get ports from role preset
+        ports = ROLE_PRESETS[role]
+        ports_str = ", ".join(ports)
+        
+        logger.info(f"Adding user {username} with role {role} (ports: {ports_str})")
+        if ttl_hours is not None:
+            logger.info(f"Setting temporary access with TTL of {ttl_hours} hours")
+            await ctx.send(f"⏱️ Adding {username} with role '{role}' and temporary access ({ttl_hours} hours)")
+            result = acl_manager.add_user_to_acl(username, role, ttl_hours)
+        else:
+            await ctx.send(f"👤 Adding {username} with role '{role}' (ports: {ports_str})")
+            result = acl_manager.add_user_to_acl(username, role)
+        
+        await ctx.send(f"✅ {result}")
+    except Exception as e:
+        logger.error(f"Error adding user {username} with role {role}: {str(e)}")
         await ctx.send(f"❌ Error adding user: {str(e)}")
 
 async def remove_user(ctx, username: str):
@@ -62,6 +99,39 @@ async def list_acl_roles(ctx):
     except Exception as e:
         logger.error(f"Error listing roles: {str(e)}")
         await ctx.send(f"❌ Error listing roles: {str(e)}")
+
+async def list_role_presets(ctx):
+    """List all available role presets and their port configurations."""
+    try:
+        # Log command to audit log
+        log_command(ctx, "listpresets", [])
+        
+        logger.info("Listing role presets")
+        
+        if not ROLE_PRESETS:
+            await ctx.send("No role presets defined.")
+            return
+            
+        # Create an embed to display the information
+        embed = discord.Embed(
+            title="🔑 Role Presets",
+            description="Available role presets for user ACL configuration",
+            color=discord.Color.blue()
+        )
+        
+        # Add each role preset as a field
+        for role, ports in ROLE_PRESETS.items():
+            ports_str = ", ".join(ports)
+            embed.add_field(
+                name=f"Role: {role}",
+                value=f"Ports: {ports_str}",
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+    except Exception as e:
+        logger.error(f"Error listing role presets: {str(e)}")
+        await ctx.send(f"❌ Error listing role presets: {str(e)}")
 
 async def list_tailnet_users(ctx):
     """List all users in tailnet."""

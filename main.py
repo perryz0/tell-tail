@@ -40,10 +40,12 @@ class TelltailHelpCommand(commands.HelpCommand):
         self.command_attrs = {
             # ACL Management
             "adduser": "ACL Management",
+            "addroleuser": "ACL Management",
             "removeuser": "ACL Management",
             "updateuser": "ACL Management",
             "listusers": "ACL Management",
             "listroles": "ACL Management",
+            "listpresets": "ACL Management",
             "acldetails": "ACL Management",
             
             # Monitoring
@@ -493,6 +495,46 @@ async def updateuser_error(ctx, error):
     else:
         logger.error(f"Error in updateuser command: {error}")
         await ctx.send("❌ An unexpected error occurred.")
+
+
+@client.command(name="addroleuser", help="Add a user to the ACL with a predefined role")
+async def addroleuser(ctx, username: str, role: str, ttl_hours: int = None):
+    """
+    Add a user to the ACL with a predefined role preset.
+    
+    Parameters:
+    - username: The Tailscale username to add
+    - role: The role preset name (dev, frontend, infra, etc.)
+    - ttl_hours: Optional time-to-live in hours for temporary access
+    
+    Example: !addroleuser devicename dev 24
+    """
+    await acl_commands.add_role_user(ctx, username, role, ttl_hours)
+
+
+@addroleuser.error
+async def addroleuser_error(ctx, error):
+    """Handle errors in the addroleuser command"""
+    if isinstance(error, commands.MissingRequiredArgument):
+        if error.param.name == 'username':
+            await ctx.send("❌ Error: Missing username parameter.\n"
+                         "Usage: `!addroleuser <username> <role> [ttl_hours]`\n"
+                         "Example: `!addroleuser alice dev 24`")
+        elif error.param.name == 'role':
+            await ctx.send("❌ Error: Missing role parameter.\n"
+                         "Usage: `!addroleuser <username> <role> [ttl_hours]`\n"
+                         "Example: `!addroleuser alice dev 24`")
+    else:
+        await ctx.send(f"❌ Error: {str(error)}")
+
+
+@client.command(name="listpresets", help="List all available role presets")
+async def listpresets(ctx):
+    """
+    List all available role presets and their port configurations.
+    Shows the predefined roles that can be used with the addroleuser command.
+    """
+    await acl_commands.list_role_presets(ctx)
 
 
 # === ADMIN COMMANDS ===

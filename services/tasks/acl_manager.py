@@ -13,6 +13,13 @@ TAILSCALE_API_TOKEN = os.getenv("TAILSCALE_API_TOKEN")
 TAILNET_NAME = os.getenv("TAILNET_NAME")
 # print(f"Loaded the TAILNET NAME: {TAILNET_NAME}")
 
+# Role-based port presets
+ROLE_PRESETS = {
+    "dev": ["22/tcp", "3000/tcp"],
+    "frontend": ["3000/tcp"],
+    "infra": ["22/tcp", "80/tcp", "443/tcp"]
+}
+
 class ACLManager:
     def __init__(self):
         self.base_url = f"https://api.tailscale.com/api/v2/tailnet/{TAILNET_NAME}"
@@ -99,18 +106,36 @@ class ACLManager:
         logger.info(f"Found {len(active_users)} active users")
         return list(active_users)
 
-    def add_user_to_acl(self, username, ports=None, ttl_hours=None):
+    def add_user_to_acl(self, username, ports_or_role=None, ttl_hours=None):
         """
-        Add or update a user in the ACL with specified ports.
+        Add or update a user in the ACL with specified ports or role preset.
         
         Args:
             username: The username to add to the ACL
-            ports: List of ports to allow access to (default: ["22/tcp"])
+            ports_or_role: Either a list of ports, a comma-separated string of ports,
+                         or a role preset name from ROLE_PRESETS (default: ["22/tcp"])
             ttl_hours: Optional time-to-live in hours. If provided, the entry will include
                       an expiration timestamp in the comment field
         """
-        if ports is None:
-            ports = ["22/tcp"]  # Defaulting to SSH port 22 for now
+        # Determine if ports_or_role is a preset or ports
+        ports = ["22/tcp"]  # Default to SSH port
+        role_name = None
+        
+        if ports_or_role is not None:
+            # Check if it's a string that matches a role preset
+            if isinstance(ports_or_role, str) and ports_or_role in ROLE_PRESETS:
+                ports = ROLE_PRESETS[ports_or_role]
+                role_name = ports_or_role
+                logger.info(f"Using role preset '{role_name}' with ports: {ports}")
+            # If it's a comma-separated string, split it
+            elif isinstance(ports_or_role, str) and "," in ports_or_role:
+                ports = ports_or_role.split(",")
+            # If it's already a list, use it directly
+            elif isinstance(ports_or_role, list):
+                ports = ports_or_role
+            # If it's a single port string without commas, put it in a list
+            elif isinstance(ports_or_role, str):
+                ports = [ports_or_role]
 
         logger.info(f"Adding user {username} to ACL with ports: {ports}")
         if ttl_hours is not None:
@@ -171,7 +196,11 @@ class ACLManager:
                     "success": True
                 }
                 
-                # Include expiration info in webhook payload if applicable
+                # Include role info if applicable
+                if role_name:
+                    webhook_payload["role"] = role_name
+                
+                # Include expiration info if applicable
                 if ttl_hours is not None:
                     webhook_payload["temporary"] = True
                     webhook_payload["expires_at"] = expires_iso
