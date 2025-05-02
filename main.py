@@ -285,19 +285,50 @@ async def monitor_status(ctx):
         
         # Count and list devices
         device_count = len(context.devices_cache)
-        device_list = "\n".join(
-            [f"- {device.get('hostname', 'Unknown')} ({device.get('addresses', ['No IP'])[0]})" 
-             for device in context.devices_cache.values()]
+        online_devices = sum(1 for device in context.devices_cache.values() if device.get('online', False))
+        
+        # Create and send an embed with status information
+        embed = discord.Embed(
+            title="📊 Tailnet Monitoring Status",
+            description=f"Monitoring status for `{context.tailnet}`",
+            color=discord.Color.blue()
         )
         
-        # Create and send the status message
-        status_message = f"""📊 **Tailnet Monitoring Status**
-Tailnet: `{context.tailnet}`
-{notification_info}
-Tracking {device_count} devices:
-{device_list}
-"""
-        await ctx.send(status_message)
+        # Add basic information fields
+        embed.add_field(name="Tailnet", value=context.tailnet, inline=True)
+        embed.add_field(name=notification_info, value="\u200b", inline=True)  # Invisible character for spacing
+        embed.add_field(name="Update Frequency", value="Every minute", inline=True)
+        
+        # Add device statistics
+        embed.add_field(name="Device Statistics", value=
+            f"Total Devices: {device_count}\n"
+            f"Online Devices: {online_devices}\n"
+            f"Offline Devices: {device_count - online_devices}", 
+            inline=False
+        )
+        
+        # Add monitoring features
+        features = [
+            "✅ Device joins/leaves",
+            "✅ Online/offline status changes",
+            "✅ Detailed device information"
+        ]
+        embed.add_field(name="Monitoring Features", value="\n".join(features), inline=False)
+        
+        # Add the most recent device changes
+        recently_changed = []
+        for device in sorted(context.devices_cache.values(), 
+                            key=lambda d: d.get('lastSeen', ''), reverse=True)[:5]:
+            hostname = device.get('hostname', 'Unknown')
+            status = "🟢 Online" if device.get('online', False) else "🔴 Offline"
+            last_seen = device.get('lastSeen', 'Unknown')
+            
+            recently_changed.append(f"{hostname}: {status} (Last seen: {last_seen})")
+        
+        if recently_changed:
+            embed.add_field(name="Recent Device Activity", value="\n".join(recently_changed), inline=False)
+        
+        await ctx.send(embed=embed)
     except Exception as e:
         logger.error(f"Error showing monitor status: {e}")
         await ctx.send("❌ Failed to show monitoring status.")
@@ -328,6 +359,7 @@ async def set_notification_channel(ctx):
 async def monitor_tailnet_changes():
     """
     Periodically check for changes in the Tailscale network and detect device joins/leaves.
+    Tracks devices between runs to detect and report changes.
     """
     try:
         # Get current devices from Tailscale API
@@ -338,11 +370,13 @@ async def monitor_tailnet_changes():
             
         current_devices = devices_response["devices"]
         current_device_map = {device['id']: device for device in current_devices}
+        current_device_ids = set(current_device_map.keys())
         
-        # Initialize devices_cache on first run
+        # Initialize on first run
         if not context.devices_cache:
             logger.info(f"Initializing device cache with {len(current_devices)} devices")
             context.devices_cache = current_device_map
+            context.last_devices = current_device_ids
             return
         
         # Get notification channel if configured
@@ -354,14 +388,27 @@ async def monitor_tailnet_changes():
                     logger.warning(f"Could not find notification channel with ID {context.notification_channel_id}")
             except ValueError:
                 logger.error(f"Invalid notification channel ID: {context.notification_channel_id}")
+        
+        # Find added devices (not in last run but in current run)
+        added_devices = current_device_ids - context.last_devices
+        if added_devices:
+            logger.info(f"Detected {len(added_devices)} new device(s) since last check")
             
-        # Check for new devices (joined)
-        for device_id, device in current_device_map.items():
-            if device_id not in context.devices_cache:
+            for device_id in added_devices:
+                device = current_device_map[device_id]
                 hostname = device.get('hostname', 'Unknown')
                 addresses = device.get('addresses', ['No IP'])
-                message = f"🟢 Device joined tailnet: {hostname} ({addresses[0]})"
-                logger.info(message)
+                user = device.get('user', 'Unknown')
+                created = device.get('created', 'Unknown time')
+                
+                # Create detailed message
+                message = (
+                    f"🟢 **Device joined tailnet**: {hostname}\n"
+                    f"📍 IP: {addresses[0]}\n"
+                    f"👤 User: {user}\n"
+                    f"🕒 Created: {created}"
+                )
+                logger.info(f"New device: {hostname} ({addresses[0]})")
                 
                 # Send notification to Discord if channel exists
                 if notification_channel:
@@ -370,23 +417,75 @@ async def monitor_tailnet_changes():
                     except Exception as e:
                         logger.error(f"Failed to send join notification to Discord: {e}")
         
-        # Check for devices that left
-        for device_id, device in context.devices_cache.items():
-            if device_id not in current_device_map:
-                hostname = device.get('hostname', 'Unknown')
-                addresses = device.get('addresses', ['No IP'])
-                message = f"🔴 Device left tailnet: {hostname} ({addresses[0]})"
-                logger.info(message)
-                
-                # Send notification to Discord if channel exists
-                if notification_channel:
-                    try:
-                        await notification_channel.send(message)
-                    except Exception as e:
-                        logger.error(f"Failed to send leave notification to Discord: {e}")
+        # Find removed devices (in last run but not in current run)
+        removed_devices = context.last_devices - current_device_ids
+        if removed_devices:
+            logger.info(f"Detected {len(removed_devices)} device(s) removed since last check")
+            
+            for device_id in removed_devices:
+                # Get the device info from the previous cache
+                if device_id in context.devices_cache:
+                    device = context.devices_cache[device_id]
+                    hostname = device.get('hostname', 'Unknown')
+                    addresses = device.get('addresses', ['No IP'])
+                    user = device.get('user', 'Unknown')
+                    last_seen = device.get('lastSeen', 'Unknown time')
+                    
+                    # Create detailed message
+                    message = (
+                        f"🔴 **Device left tailnet**: {hostname}\n"
+                        f"📍 IP: {addresses[0]}\n"
+                        f"👤 User: {user}\n"
+                        f"🕒 Last seen: {last_seen}"
+                    )
+                    logger.info(f"Removed device: {hostname} ({addresses[0]})")
+                    
+                    # Send notification to Discord if channel exists
+                    if notification_channel:
+                        try:
+                            await notification_channel.send(message)
+                        except Exception as e:
+                            logger.error(f"Failed to send leave notification to Discord: {e}")
         
-        # Update the cache with current devices
+        # Check for status changes in existing devices
+        for device_id in current_device_ids.intersection(context.last_devices):
+            # If the device was in both runs, check if its online status changed
+            if device_id in context.devices_cache:
+                old_device = context.devices_cache[device_id]
+                new_device = current_device_map[device_id]
+                
+                old_online = old_device.get('online', False)
+                new_online = new_device.get('online', False)
+                
+                if old_online != new_online:
+                    hostname = new_device.get('hostname', 'Unknown')
+                    addresses = new_device.get('addresses', ['No IP'])
+                    
+                    if new_online:
+                        # Device came online
+                        status_message = (
+                            f"🟢 **Device came online**: {hostname}\n"
+                            f"📍 IP: {addresses[0]}"
+                        )
+                        logger.info(f"Device came online: {hostname} ({addresses[0]})")
+                    else:
+                        # Device went offline
+                        status_message = (
+                            f"🔴 **Device went offline**: {hostname}\n"
+                            f"📍 IP: {addresses[0]}"
+                        )
+                        logger.info(f"Device went offline: {hostname} ({addresses[0]})")
+                    
+                    # Send notification to Discord if channel exists and if configured to notify about status changes
+                    if notification_channel:
+                        try:
+                            await notification_channel.send(status_message)
+                        except Exception as e:
+                            logger.error(f"Failed to send status change notification to Discord: {e}")
+        
+        # Update the device cache and last_devices for the next run
         context.devices_cache = current_device_map
+        context.last_devices = current_device_ids
         
     except Exception as e:
         logger.error(f"Error monitoring Tailnet: {e}")
