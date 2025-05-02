@@ -5,6 +5,7 @@ Provides a web API for managing Tailscale networks.
 
 import os
 from flask import Flask, Blueprint, redirect, url_for, render_template, send_from_directory, session
+from flask_cors import CORS
 from dotenv import load_dotenv
 from services.api.TailscaleAPI import TailscaleAPI
 from services.logging import logger
@@ -22,6 +23,9 @@ def create_app():
         Flask application instance
     """
     app = Flask(__name__)
+    
+    # Configure CORS
+    CORS(app, supports_credentials=True, origins=os.getenv('ALLOWED_ORIGINS', '*').split(','))
     
     # Configure app
     app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', os.urandom(24).hex())
