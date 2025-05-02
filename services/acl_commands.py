@@ -1,7 +1,7 @@
 from discord.ext import commands
 from services.tasks.acl_manager import ACLManager
 from services.logging import logger
-from services.logging.audit import log_command_audit
+from services.logging.audit import log_command
 import discord
 
 acl_manager = ACLManager()
@@ -17,7 +17,7 @@ async def add_user(ctx, username: str, ports: str = "22/tcp", ttl_hours: int = N
     """
     try:
         # Log command to audit log
-        log_command_audit(ctx.author.name, "adduser", username, ports, ttl_hours)
+        log_command(ctx, "adduser", [username, ports, ttl_hours])
         
         logger.info(f"Adding user {username} with ports {ports}")
         if ttl_hours is not None:
@@ -36,7 +36,7 @@ async def remove_user(ctx, username: str):
     """Remove a user from the ACL."""
     try:
         # Log command to audit log
-        log_command_audit(ctx.author.name, "removeuser", username)
+        log_command(ctx, "removeuser", [username])
         
         logger.info(f"Removing user {username} from ACL")
         result = acl_manager.remove_user_from_acl(username)
@@ -45,10 +45,12 @@ async def remove_user(ctx, username: str):
         logger.error(f"Error removing user {username}: {str(e)}")
         await ctx.send(f"❌ Error removing user: {str(e)}")
 
-# TODO: gotta add granularity here as well
 async def list_acl_roles(ctx):
     """List all user roles in the ACL."""
     try:
+        # Log command to audit log
+        log_command(ctx, "listroles", [])
+        
         logger.info("Listing ACL roles")
         users = acl_manager.list_acl_roles()
         if users:
@@ -64,6 +66,9 @@ async def list_acl_roles(ctx):
 async def list_tailnet_users(ctx):
     """List all users in tailnet."""
     try:
+        # Log command to audit log
+        log_command(ctx, "listusers", [])
+        
         logger.info("Listing tailnet users")
         users = acl_manager.list_tailnet_users()
         if users:
@@ -80,7 +85,7 @@ async def update_user(ctx, username: str, ports: str):
     """Update the ports for an existing user."""
     try:
         # Log command to audit log
-        log_command_audit(ctx.author.name, "updateuser", username, ports)
+        log_command(ctx, "updateuser", [username, ports])
         
         logger.info(f"Updating user {username} with ports {ports}")
         result = acl_manager.update_user_acl(username, ports.split(","))
@@ -92,6 +97,9 @@ async def update_user(ctx, username: str, ports: str):
 async def list_acl_details(ctx):
     """List ACL details including expiration times for temporary access."""
     try:
+        # Log command to audit log
+        log_command(ctx, "acldetails", [])
+        
         logger.info("Listing detailed ACL information")
         
         # Get the raw ACL data
