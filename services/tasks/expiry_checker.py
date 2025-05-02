@@ -11,8 +11,8 @@ from services.logging import logger
 load_dotenv()
 
 # How often to check for expired entries (in seconds)
-# Default: every hour
-CHECK_INTERVAL = int(os.getenv("ACL_EXPIRY_CHECK_INTERVAL", 3600))
+# Default: every minute
+CHECK_INTERVAL = int(os.getenv("ACL_EXPIRY_CHECK_INTERVAL", 60))
 
 class ExpiryChecker:
     def __init__(self, bot=None):
