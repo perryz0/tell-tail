@@ -1,12 +1,16 @@
 from discord.ext import commands
 from services.tasks.acl_manager import ACLManager
 from services.logging import logger
+from services.logging.audit import log_command_audit
 
 acl_manager = ACLManager()
 
 async def add_user(ctx, username: str, ports: str = "22/tcp"):
     """Add a user to the ACL."""
     try:
+        # Log command to audit log
+        log_command_audit(ctx.author.name, "adduser", username, ports)
+        
         logger.info(f"Adding user {username} with ports {ports}")
         result = acl_manager.add_user_to_acl(username, ports.split(","))
         await ctx.send(f"✅ {result}")
@@ -17,6 +21,9 @@ async def add_user(ctx, username: str, ports: str = "22/tcp"):
 async def remove_user(ctx, username: str):
     """Remove a user from the ACL."""
     try:
+        # Log command to audit log
+        log_command_audit(ctx.author.name, "removeuser", username)
+        
         logger.info(f"Removing user {username} from ACL")
         result = acl_manager.remove_user_from_acl(username)
         await ctx.send(f"✅ {result}")
@@ -58,6 +65,9 @@ async def list_tailnet_users(ctx):
 async def update_user(ctx, username: str, ports: str):
     """Update the ports for an existing user."""
     try:
+        # Log command to audit log
+        log_command_audit(ctx.author.name, "updateuser", username, ports)
+        
         logger.info(f"Updating user {username} with ports {ports}")
         result = acl_manager.update_user_acl(username, ports.split(","))
         await ctx.send(f"✅ {result}")
