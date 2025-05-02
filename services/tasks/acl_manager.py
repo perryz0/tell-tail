@@ -2,6 +2,7 @@ import requests
 import os
 import json
 import difflib
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from services.logging import logger
 from services.hooks.webhooks import trigger_webhook
@@ -98,12 +99,22 @@ class ACLManager:
         logger.info(f"Found {len(active_users)} active users")
         return list(active_users)
 
-    def add_user_to_acl(self, username, ports=None):
-        """Add or update a user in the ACL with specified ports."""
+    def add_user_to_acl(self, username, ports=None, ttl_hours=None):
+        """
+        Add or update a user in the ACL with specified ports.
+        
+        Args:
+            username: The username to add to the ACL
+            ports: List of ports to allow access to (default: ["22/tcp"])
+            ttl_hours: Optional time-to-live in hours. If provided, the entry will include
+                      an expiration timestamp in the comment field
+        """
         if ports is None:
             ports = ["22/tcp"]  # Defaulting to SSH port 22 for now
 
         logger.info(f"Adding user {username} to ACL with ports: {ports}")
+        if ttl_hours is not None:
+            logger.info(f"Setting temporary access with TTL of {ttl_hours} hours")
 
         # First check if user is an EXISTING member of the Tailnet
         active_users = self.list_tailnet_users()
@@ -124,11 +135,18 @@ class ACLManager:
         # Store the original ACL for diff comparison
         original_acl = dict(existing_acls)
         
-        # Update the ACL by adding a new user entry
+        # Create new ACL entry
         new_entry = {
             "users": [f"user:{username}"],
             "ports": ports
         }
+        
+        # Add expiration timestamp if ttl_hours is provided
+        if ttl_hours is not None:
+            expires_at = datetime.utcnow() + timedelta(hours=ttl_hours)
+            expires_iso = expires_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+            new_entry["comment"] = f"// expires_at: {expires_iso}"
+            logger.info(f"Set expiration time for user {username} to {expires_iso}")
 
         updated_acls = existing_acls.get("acls", [])
         updated_acls.append(new_entry)
@@ -152,6 +170,13 @@ class ACLManager:
                     "tailnet": TAILNET_NAME,
                     "success": True
                 }
+                
+                # Include expiration info in webhook payload if applicable
+                if ttl_hours is not None:
+                    webhook_payload["temporary"] = True
+                    webhook_payload["expires_at"] = expires_iso
+                    webhook_payload["ttl_hours"] = ttl_hours
+                
                 trigger_webhook("acl.user.added", webhook_payload)
         
         return result
@@ -249,3 +274,71 @@ class ACLManager:
                 trigger_webhook("acl.user.updated", webhook_payload)
         
         return result
+
+    def check_and_remove_expired_entries(self):
+        """
+        Check all ACL entries for expired TTLs and remove them if expired.
+        Returns a list of usernames that were removed due to expiration.
+        """
+        logger.info("Checking for expired ACL entries")
+        existing_acls = self.get_acls()
+        if not existing_acls:
+            logger.error("Failed to fetch current ACLs")
+            return []
+            
+        # Store the original ACL for diff comparison
+        original_acl = dict(existing_acls)
+        
+        # Get current UTC time
+        now = datetime.utcnow()
+        removed_users = []
+        updated_acls = []
+        
+        # Check each ACL entry for expiration
+        for entry in existing_acls.get("acls", []):
+            comment = entry.get("comment", "")
+            if "// expires_at:" in comment:
+                try:
+                    # Extract the expiration timestamp
+                    expires_str = comment.split("// expires_at:")[1].strip()
+                    expires_at = datetime.strptime(expires_str, "%Y-%m-%dT%H:%M:%SZ")
+                    
+                    # If the entry has expired, skip it (effectively removing it)
+                    if expires_at <= now:
+                        # Extract username for reporting
+                        if entry.get("users") and len(entry.get("users")) > 0:
+                            user = entry.get("users")[0].replace("user:", "")
+                            removed_users.append(user)
+                            logger.info(f"Removing expired ACL entry for user {user} (expired at {expires_str})")
+                            continue
+                except Exception as e:
+                    logger.error(f"Error parsing expiration date in comment '{comment}': {e}")
+            
+            # If not expired, keep the entry
+            updated_acls.append(entry)
+            
+        # If we found and removed any expired entries, update the ACL
+        if len(removed_users) > 0:
+            data = {"acls": updated_acls}
+            logger.info(f"Updating ACL after removing {len(removed_users)} expired entries")
+            result = self._make_request("POST", "/acl", data)
+            
+            # Log the diff and trigger webhook if the update was successful
+            if result:
+                # Get the updated ACLs to compare with the original
+                updated_acl = self.get_acls()
+                if updated_acl:
+                    self._log_acl_diff(original_acl, updated_acl, "expire", ", ".join(removed_users))
+                    
+                    # Trigger webhook for each removed user
+                    for username in removed_users:
+                        webhook_payload = {
+                            "operation": "expire",
+                            "username": username,
+                            "tailnet": TAILNET_NAME,
+                            "success": True,
+                            "reason": "TTL expired"
+                        }
+                        trigger_webhook("acl.user.expired", webhook_payload)
+        
+        return removed_users

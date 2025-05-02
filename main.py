@@ -9,6 +9,7 @@ from services import acl_commands
 from settings.bot_context import BotContext
 from services.logging import logger
 import asyncio
+from services.tasks.expiry_checker import ExpiryChecker
 
 
 # Load .env variables
@@ -43,6 +44,7 @@ class TelltailHelpCommand(commands.HelpCommand):
             "updateuser": "ACL Management",
             "listusers": "ACL Management",
             "listroles": "ACL Management",
+            "acldetails": "ACL Management",
             
             # Monitoring
             "list_devices": "Monitoring",
@@ -140,6 +142,7 @@ client = commands.Bot(
     help_command=TelltailHelpCommand()
 )
 context: BotContext = BotContext()
+expiry_checker = ExpiryChecker(client)
 
 
 # Basic event handlers
@@ -152,6 +155,9 @@ async def on_ready():
         logger.info(f"- {guild.name} (ID: {guild.id})")
     # Start background tasks
     monitor_tailnet_changes.start()
+    # Start ACL expiry checker
+    asyncio.create_task(expiry_checker.start_periodic_check())
+    logger.info("Started periodic ACL expiry checker")
 
 
 @client.command(name="ping", help="Check if the bot is running")
@@ -387,29 +393,28 @@ async def monitor_tailnet_changes():
 # === ACL MANAGEMENT COMMANDS ===
 
 @client.command(name="adduser", help="Add a user to the ACL")
-async def adduser(ctx, username: str, ports: str = "22/tcp"):
+async def adduser(ctx, username: str, ports: str = "22/tcp", ttl_hours: int = None):
     """
-    Add a user to the Tailscale ACL with specified port access.
+    Add a user to the ACL with optional time-limited access.
     
     Parameters:
-    - username: The Tailscale username to add
-    - ports: Comma-separated list of ports (default: 22/tcp)
-    
-    Example: !adduser devicename 22/tcp,80/tcp,443/tcp
+    - username: The username to add to the ACL
+    - ports: Comma-separated list of ports to allow (default: 22/tcp)
+    - ttl_hours: Optional time-to-live in hours for temporary access
     """
-    await acl_commands.add_user(ctx, username, ports)
+    await acl_commands.add_user(ctx, username, ports, ttl_hours)
 
 
 @adduser.error
 async def adduser_error(ctx, error):
-    """Error handler for the adduser command"""
+    """Handle errors in the adduser command"""
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("❌ Error: Missing username. Usage: `!adduser <username> [ports]`\nExample: `!adduser mydevice 22/tcp,80/tcp`")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("❌ Error: Invalid argument. Usage: `!adduser <username> [ports]`")
+        if error.param.name == 'username':
+            await ctx.send("❌ Error: Missing username parameter.\n"
+                         "Usage: `!adduser <username> [ports] [ttl_hours]`\n"
+                         "Example: `!adduser alice 22/tcp,80/tcp 24`")
     else:
-        logger.error(f"Error in adduser command: {error}")
-        await ctx.send("❌ An unexpected error occurred.")
+        await ctx.send(f"❌ Error: {str(error)}")
 
 
 @client.command(name="removeuser", help="Remove a user from the ACL")
@@ -448,11 +453,17 @@ async def listusers(ctx):
 
 @client.command(name="listroles", help="List all user roles with access permissions")
 async def listroles(ctx):
-    """
-    List all user roles in the ACL configuration.
-    Shows which users have access permissions defined in the ACL.
-    """
+    """List all user roles defined in the ACL."""
     await acl_commands.list_acl_roles(ctx)
+
+
+@client.command(name="acldetails", help="Show detailed ACL information including expiration times")
+async def acldetails(ctx):
+    """
+    Show detailed information about ACL entries including expiration times for temporary access.
+    Lists all current access control entries with their ports and expiration times if applicable.
+    """
+    await acl_commands.list_acl_details(ctx)
 
 
 @client.command(name="updateuser", help="Update user ACL ports")
