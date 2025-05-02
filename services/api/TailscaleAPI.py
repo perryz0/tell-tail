@@ -1,4 +1,5 @@
-import requests, os, logging
+import requests, os
+from services.logging import logger
 
 class TailscaleAPI:
     """
@@ -38,16 +39,16 @@ class TailscaleAPI:
             response.raise_for_status()  # HTTPError for bad responses (4xx, 5xx)
 
             # Log raw response to check its format
-            logging.info(f"Raw response: {response.text}")
+            logger.info(f"Raw response: {response.text}")
 
             # Try to parse JSON, handle cases where it fails
             try:
                 return response.json()
             except ValueError:
-                logging.error(f"Failed to parse JSON from response: {response.text}")
+                logger.error(f"Failed to parse JSON from response: {response.text}")
                 return None
         except requests.RequestException as e:
-            logging.error(f"Request failed: {e}")
+            logger.error(f"Request failed: {e}")
             return None
 
     def list_devices(self, tailnet):

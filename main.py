@@ -2,11 +2,12 @@ from typing import Final
 
 import discord
 from discord.ext import commands, tasks
-import os, logging
+import os
 from dotenv import load_dotenv
 from services.api.TailscaleAPI import TailscaleAPI
 from services import acl_commands
 from settings.bot_context import BotContext
+from services.logging import logger
 import asyncio
 
 
@@ -22,18 +23,16 @@ intents = discord.Intents.all()
 intents.message_content = True
 
 client = commands.Bot(command_prefix="!", intents=intents)
-logging.basicConfig(level=logging.INFO)
-
 context: BotContext = BotContext()
 
 
 # Basic event handlers
 @client.event
 async def on_ready():
-    logging.info(f"Logged in as {client.user}")
-    logging.info("Connected guilds:")
+    logger.info(f"Logged in as {client.user}")
+    logger.info("Connected guilds:")
     for guild in client.guilds:
-        logging.info(f"- {guild.name} (ID: {guild.id})")
+        logger.info(f"- {guild.name} (ID: {guild.id})")
     # Start background tasks
     monitor_tailnet_changes.start()
 
@@ -58,7 +57,7 @@ async def list_devices(ctx):
         device_list = "\n".join([f"- {device['hostname']} ({device['addresses'][0]})" for device in devices])
         await ctx.send(f"Devices on Tailscale:\n{device_list}")
     except Exception as e:
-        logging.error(f"Error listing devices: {e}")
+        logger.error(f"Error listing devices: {e}")
         await ctx.send("Failed to retrieve device list.")
 
 
@@ -70,9 +69,9 @@ async def monitor_tailnet_changes():
     """
     try:
         # devices = ts.list_devices(context.tailnet)
-        logging.info(f"Monitoring Tailnet `{TAILNET_NAME}` for changes...")     # Basic console logging for now
+        logger.info(f"Monitoring Tailnet `{TAILNET_NAME}` for changes...")     # Basic console logging for now
     except Exception as e:
-        logging.error(f"Error monitoring Tailnet: {e}")
+        logger.error(f"Error monitoring Tailnet: {e}")
 
 # Error Handling: Command Errors
 @client.event
@@ -80,7 +79,7 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         await ctx.send("Unknown command. Use `!help` to see available commands.")
     else:
-        logging.error(f"Error occurred: {error}")
+        logger.error(f"Error occurred: {error}")
         await ctx.send("An unexpected error occurred. Please check the logs.")
 
 
