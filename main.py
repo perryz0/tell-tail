@@ -65,11 +65,67 @@ async def list_devices(ctx):
 @tasks.loop(minutes=1)
 async def monitor_tailnet_changes():
     """
-    Periodically check for changes in the Tailscale network and send alerts to a Discord channel.
+    Periodically check for changes in the Tailscale network and detect device joins/leaves.
     """
     try:
-        # devices = ts.list_devices(context.tailnet)
-        logger.info(f"Monitoring Tailnet `{TAILNET_NAME}` for changes...")     # Basic console logging for now
+        # Get current devices from Tailscale API
+        devices_response = ts.list_devices(context.tailnet)
+        if not devices_response or "devices" not in devices_response:
+            logger.warning("No devices found in tailnet or API response error")
+            return
+            
+        current_devices = devices_response["devices"]
+        current_device_map = {device['id']: device for device in current_devices}
+        
+        # Initialize devices_cache on first run
+        if not context.devices_cache:
+            logger.info(f"Initializing device cache with {len(current_devices)} devices")
+            context.devices_cache = current_device_map
+            return
+        
+        # Get notification channel if configured
+        notification_channel = None
+        if context.notification_channel_id:
+            try:
+                notification_channel = client.get_channel(int(context.notification_channel_id))
+                if not notification_channel:
+                    logger.warning(f"Could not find notification channel with ID {context.notification_channel_id}")
+            except ValueError:
+                logger.error(f"Invalid notification channel ID: {context.notification_channel_id}")
+            
+        # Check for new devices (joined)
+        for device_id, device in current_device_map.items():
+            if device_id not in context.devices_cache:
+                hostname = device.get('hostname', 'Unknown')
+                addresses = device.get('addresses', ['No IP'])
+                message = f"🟢 Device joined tailnet: {hostname} ({addresses[0]})"
+                logger.info(message)
+                
+                # Send notification to Discord if channel exists
+                if notification_channel:
+                    try:
+                        await notification_channel.send(message)
+                    except Exception as e:
+                        logger.error(f"Failed to send join notification to Discord: {e}")
+        
+        # Check for devices that left
+        for device_id, device in context.devices_cache.items():
+            if device_id not in current_device_map:
+                hostname = device.get('hostname', 'Unknown')
+                addresses = device.get('addresses', ['No IP'])
+                message = f"🔴 Device left tailnet: {hostname} ({addresses[0]})"
+                logger.info(message)
+                
+                # Send notification to Discord if channel exists
+                if notification_channel:
+                    try:
+                        await notification_channel.send(message)
+                    except Exception as e:
+                        logger.error(f"Failed to send leave notification to Discord: {e}")
+        
+        # Update the cache with current devices
+        context.devices_cache = current_device_map
+        
     except Exception as e:
         logger.error(f"Error monitoring Tailnet: {e}")
 
@@ -105,6 +161,109 @@ async def listroles(ctx):
 async def updateuser(ctx, username: str, ports: str):
     await acl_commands.update_user(ctx, username, ports)
 
+@client.command(name="set_notification_channel", help="Set the current channel for device notifications")
+async def set_notification_channel(ctx):
+    """Set the current channel as the notification channel for device changes."""
+    try:
+        # Update the context with the current channel ID
+        context.notification_channel_id = str(ctx.channel.id)
+        
+        # Save to environment variable (won't persist after restart)
+        os.environ["NOTIFICATION_CHANNEL_ID"] = str(ctx.channel.id)
+        
+        logger.info(f"Notification channel set to #{ctx.channel.name} ({ctx.channel.id})")
+        await ctx.send(f"✅ This channel (#{ctx.channel.name}) will now receive device connection notifications.")
+    except Exception as e:
+        logger.error(f"Error setting notification channel: {e}")
+        await ctx.send("❌ Failed to set notification channel.")
+
+@client.command(name="monitor_status", help="Show monitoring status and tracked devices")
+async def monitor_status(ctx):
+    """Display the current monitoring status and devices being tracked."""
+    try:
+        if not context.devices_cache:
+            await ctx.send("⚠️ Device monitoring is not yet initialized. It will start on the next monitoring cycle.")
+            return
+        
+        # Get notification channel info
+        notification_info = "Notifications: Disabled"
+        if context.notification_channel_id:
+            channel = client.get_channel(int(context.notification_channel_id))
+            if channel:
+                notification_info = f"Notifications: Enabled in #{channel.name}"
+            else:
+                notification_info = f"Notifications: Configured but channel not found (ID: {context.notification_channel_id})"
+        
+        # Count and list devices
+        device_count = len(context.devices_cache)
+        device_list = "\n".join(
+            [f"- {device.get('hostname', 'Unknown')} ({device.get('addresses', ['No IP'])[0]})" 
+             for device in context.devices_cache.values()]
+        )
+        
+        # Create and send the status message
+        status_message = f"""📊 **Tailnet Monitoring Status**
+Tailnet: `{context.tailnet}`
+{notification_info}
+Tracking {device_count} devices:
+{device_list}
+"""
+        await ctx.send(status_message)
+    except Exception as e:
+        logger.error(f"Error showing monitor status: {e}")
+        await ctx.send("❌ Failed to show monitoring status.")
+
+@client.command(name="device_status", help="Check if a specific device is currently online")
+async def device_status(ctx, device_name: str):
+    """Check if a specific device is online in the tailnet."""
+    try:
+        if not context.devices_cache:
+            await ctx.send("⚠️ Device monitoring is not yet initialized. Please try again in a moment.")
+            return
+        
+        # Search for the device by hostname (case-insensitive)
+        device_name_lower = device_name.lower()
+        found_devices = [
+            device for device in context.devices_cache.values() 
+            if device.get('hostname', '').lower() == device_name_lower
+        ]
+        
+        if not found_devices:
+            # Try partial match if no exact match found
+            found_devices = [
+                device for device in context.devices_cache.values() 
+                if device_name_lower in device.get('hostname', '').lower()
+            ]
+            
+            if not found_devices:
+                await ctx.send(f"❌ No device found with name '{device_name}'")
+                return
+            elif len(found_devices) > 1:
+                # Multiple matches found
+                device_list = "\n".join([f"- {device.get('hostname', 'Unknown')}" for device in found_devices])
+                await ctx.send(f"ℹ️ Multiple devices found matching '{device_name}':\n{device_list}")
+                return
+        
+        # Get the device details
+        device = found_devices[0]
+        hostname = device.get('hostname', 'Unknown')
+        ip_address = device.get('addresses', ['No IP'])[0]
+        is_online = device.get('online', False)
+        last_seen = device.get('lastSeen', 'Unknown')
+        
+        status_emoji = "🟢" if is_online else "🔴"
+        status_text = "Online" if is_online else "Offline"
+        
+        # Send the status message
+        status_message = f"""**Device Status: {hostname}**
+{status_emoji} Status: {status_text}
+📍 IP: {ip_address}
+🕒 Last Seen: {last_seen}
+"""
+        await ctx.send(status_message)
+    except Exception as e:
+        logger.error(f"Error checking device status: {e}")
+        await ctx.send("❌ Failed to check device status.")
 
 # Run the bot
 if __name__ == "__main__":

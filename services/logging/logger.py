@@ -53,4 +53,4 @@ def setup_logger(name="telltail"):
     return logger
 
 # Create a default logger instance
-logger = setup_logger() 
+logger = setup_logger()
